@@ -29,8 +29,9 @@ class SocketMgr extends Factory
     public Error    $error;
     public FiberMgr $fiberMgr;
 
+    public int $master_id = 0;
+
     public string $address   = '';
-    public string $master_id = '';
     public string $sock_type = '';
     public string $heartbeat = "\n";
 
@@ -43,6 +44,7 @@ class SocketMgr extends Factory
         'onHeartbeat'  => null,  //callback(int $socket_id): string, heartbeat message send to $socket_id
         'onMessage'    => null,  //callback(int $socket_id, string $message): void
         'onSend'       => null,  //callback(int $socket_id): array[string], message list send to $socket_id, [msg1, msg2, msg3, ...]
+        'onSendBinary' => null,  //callback(int $socket_id): array[binary], message list send to $socket_id, [msg1, msg2, msg3, ...]
         'onSendFailed' => null,  //callback(int $socket_id, string $message): void
         'onClose'      => null   //callback(int $socket_id): void
     ];
@@ -59,7 +61,7 @@ class SocketMgr extends Factory
 
     public int $sending_gap     = 0;
     public int $alive_timeout   = 60;
-    public int $max_num_in_loop = 200;
+    public int $max_num_in_loop = 2000;
 
     /**
      * @throws \ReflectionException
@@ -313,6 +315,19 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
+    public function onSendBinary(callable $callback_func): self
+    {
+        $this->callbacks['onSendBinary'] = $callback_func;
+
+        unset($callback_func);
+        return $this;
+    }
+
+    /**
+     * @param callable $callback_func
+     *
+     * @return $this
+     */
     public function onSendFailed(callable $callback_func): self
     {
         $this->callbacks['onSendFailed'] = $callback_func;
@@ -336,26 +351,26 @@ class SocketMgr extends Factory
 
     /**
      * @param string $address
-     * @param bool   $websocket
+     * @param bool   $is_websocket
      *
      * @return void
      * @throws \ReflectionException
      * @throws \Throwable
      */
-    public function listenTo(string $address, bool $websocket = false): void
+    public function listenTo(string $address, bool $is_websocket = false): void
     {
         $this->address = $address;
         $this->createServer($address);
 
         if ('udp' !== $this->sock_type) {
-            $this->fiberMgr->async([$this, 'serverOnConnect'], [$websocket]);
+            $this->fiberMgr->async([$this, 'serverOnChange'], [$is_websocket]);
         } else {
             $this->connections = $this->master_sock;
+            $this->fiberMgr->async([$this, 'serverOnMessage'], [$is_websocket]);
         }
 
-        $this->fiberMgr->async([$this, 'serverOnMessage'], [$websocket]);
-        $this->fiberMgr->async([$this, 'serverOnHeartbeat'], [$websocket]);
-        $this->fiberMgr->async([$this, 'serverOnSend'], [$websocket]);
+        $this->fiberMgr->async([$this, 'serverOnHeartbeat'], [$is_websocket]);
+        $this->fiberMgr->async([$this, 'serverOnSend'], [$is_websocket]);
 
         $this->fiberMgr->commit();
     }
@@ -397,141 +412,124 @@ class SocketMgr extends Factory
     }
 
     /**
-     * @param bool $websocket
+     * @param bool $is_websocket
      *
      * @return void
      * @throws \ReflectionException
      * @throws \Throwable
      */
-    public function serverOnConnect(bool $websocket = false): void
+    public function serverOnChange(bool $is_websocket = false): void
     {
         $write = $except = [];
 
         while (true) {
-            $socket = $this->master_sock;
+            $count = 0;
+            $read  = $this->master_sock + $this->connections;
 
-            if (0 === stream_select($socket, $write, $except, $this->read_timeout[0], $this->read_timeout[1])) {
+            if (0 === stream_select($read, $write, $except, $this->read_timeout[0], $this->read_timeout[1])) {
                 \Fiber::suspend();
                 continue;
             }
 
-            try {
-                $client = stream_socket_accept(current($socket), 1);
-            } catch (\Throwable $throwable) {
-                $this->debug('Accept connection failed: ' . $throwable->getMessage());
-                $this->error->exceptionHandler($throwable, false, false);
-                unset($throwable);
-                continue;
-            }
-
-            if (false === $client) {
-                $this->debug('Failed to accept client!');
-                continue;
-            }
-
-            stream_set_blocking($client, $this->block_mode);
-
-            $socket_id = get_resource_id($client);
-
-            if ($websocket) {
-                $this->handshakes[$socket_id] = false;
-            }
-
-            $now_time = time();
-
-            $this->activities[$socket_id]  = [$now_time, $now_time];
-            $this->connections[$socket_id] = $client;
-
-            $this->debug('Client connected: #' . $socket_id);
-
-            if (is_callable($this->callbacks['onConnect'])) {
-                try {
-                    $response = call_user_func($this->callbacks['onConnect'], $socket_id);
-
-                    if (!$websocket && is_string($response) && '' !== $response) {
-                        $this->sendMessage($socket_id, $response);
-                    }
-                } catch (\Throwable $throwable) {
-                    $this->debug('serverOnConnect callback ERROR: ' . $throwable->getMessage());
-                    $this->error->exceptionHandler($throwable, false, false);
-                    unset($throwable);
-                }
-            }
-        }
-    }
-
-    /**
-     * @param bool $websocket
-     *
-     * @return void
-     * @throws \ReflectionException
-     * @throws \Throwable
-     */
-    public function serverOnMessage(bool $websocket = false): void
-    {
-        $write = $except = [];
-
-        while (true) {
-            $count   = 0;
-            $clients = $this->connections;
-
-            if (empty($clients) || 0 === stream_select($clients, $write, $except, $this->read_timeout[0], $this->read_timeout[1])) {
-                \Fiber::suspend();
-                continue;
-            }
-
-            foreach ($clients as $socket_id => $client) {
+            foreach ($read as $socket_id => $socket) {
                 if (++$count > $this->max_num_in_loop) {
                     $count = 0;
                     \Fiber::suspend();
                 }
 
-                try {
-                    $message = $this->readMessage($socket_id);
-
-                    if ($websocket) {
-                        if (isset($this->handshakes[$socket_id])) {
-                            while (false !== $msg_line = fgets($this->connections[$socket_id])) {
-                                $message .= $msg_line;
-                            }
-
-                            $this->wsSendHandshake($socket_id, $message);
-
-                            unset($msg_line);
-                            continue;
-                        }
-
-                        $message = $this->wsGetMessage($socket_id, $message);
+                //Accept new connection
+                if ($socket_id === $this->master_id) {
+                    try {
+                        $client = stream_socket_accept($socket, 1);
+                    } catch (\Throwable $throwable) {
+                        $this->debug('Accept connection failed: ' . $throwable->getMessage());
+                        $this->error->exceptionHandler($throwable, false, false);
+                        unset($throwable);
+                        continue;
                     }
-                } catch (\Throwable $throwable) {
-                    $this->debug('serverOnMessage debug: ' . $throwable->getMessage());
-                    unset($throwable);
+
+                    if (false === $client) {
+                        $this->debug('Failed to accept client!');
+                        continue;
+                    }
+
+                    stream_set_blocking($client, $this->block_mode);
+
+                    $client_id = get_resource_id($client);
+
+                    if ($is_websocket) {
+                        $this->handshakes[$client_id] = false;
+                    }
+
+                    $now_time = time();
+
+                    $this->activities[$client_id]  = [$now_time, $now_time];
+                    $this->connections[$client_id] = $client;
+
+                    $this->debug('Client connected: #' . $client_id);
+
+                    if (is_callable($this->callbacks['onConnect'])) {
+                        try {
+                            $response = call_user_func($this->callbacks['onConnect'], $client_id);
+
+                            if (!$is_websocket && is_string($response) && '' !== $response) {
+                                $this->sendMessage($client_id, $response);
+                            }
+                        } catch (\Throwable $throwable) {
+                            $this->debug('serverOnConnect callback ERROR: ' . $throwable->getMessage());
+                            $this->error->exceptionHandler($throwable, false, false);
+                            unset($throwable);
+                        }
+                    }
+
                     continue;
                 }
 
-                $this->debug('Read message from #' . $socket_id . ': ' . $message);
-
-                if (is_callable($this->callbacks['onMessage'])) {
-                    try {
-                        call_user_func($this->callbacks['onMessage'], $socket_id, $message);
-                    } catch (\Throwable $throwable) {
-                        $this->debug('serverOnMessage callback ERROR: ' . $throwable->getMessage());
-                        $this->error->exceptionHandler($throwable, false, false);
-                        unset($throwable);
-                    }
+                //Process message only if connection exists
+                if (isset($this->connections[$socket_id])) {
+                    $this->serverProcessMessage($socket_id, $is_websocket);
                 }
             }
         }
     }
 
     /**
-     * @param bool $websocket
+     * @param bool $is_websocket
+     *
+     * @return void
+     */
+    public function serverOnMessage(bool $is_websocket = false): void
+    {
+        $write = $except = [];
+
+        while (true) {
+            $count = 0;
+            $read  = $this->connections;
+
+            if (empty($read) || 0 === stream_select($read, $write, $except, $this->read_timeout[0], $this->read_timeout[1])) {
+                \Fiber::suspend();
+                continue;
+            }
+
+            foreach ($read as $socket_id => $client) {
+                if (++$count > $this->max_num_in_loop) {
+                    $count = 0;
+                    \Fiber::suspend();
+                }
+
+                $this->serverProcessMessage($socket_id, $is_websocket);
+            }
+        }
+    }
+
+    /**
+     * @param bool $is_websocket
      *
      * @return void
      * @throws \ReflectionException
      * @throws \Throwable
      */
-    public function serverOnHeartbeat(bool $websocket = false): void
+    public function serverOnHeartbeat(bool $is_websocket = false): void
     {
         $active_timeout = (int)($this->alive_timeout / 1.5);
 
@@ -557,7 +555,7 @@ class SocketMgr extends Factory
 
                 $this->activities[$socket_id][1] = $now_time;
 
-                if ($websocket) {
+                if ($is_websocket) {
                     $this->wsPing($socket_id);
                     $this->debug('Send heartbeat to websocket: #' . $socket_id);
                 } else {
@@ -584,15 +582,15 @@ class SocketMgr extends Factory
     }
 
     /**
-     * @param bool $websocket
+     * @param bool $is_websocket
      *
      * @return void
      * @throws \ReflectionException
      * @throws \Throwable
      */
-    public function serverOnSend(bool $websocket = false): void
+    public function serverOnSend(bool $is_websocket = false): void
     {
-        if (!is_callable($this->callbacks['onSend'])) {
+        if (!is_callable($this->callbacks['onSendBinary']) && !is_callable($this->callbacks['onSend'])) {
             return;
         }
 
@@ -612,40 +610,90 @@ class SocketMgr extends Factory
                 }
 
                 try {
-                    $msg_list = call_user_func($this->callbacks['onSend'], $socket_id);
+                    $is_binary = true;
+                    $msg_list  = call_user_func($this->callbacks['onSendBinary'], $socket_id);
+
+                    if (empty($msg_list)) {
+                        $is_binary = false;
+                        $msg_list  = call_user_func($this->callbacks['onSend'], $socket_id);
+                    }
+
+                    if (!is_array($msg_list)) {
+                        throw new \ErrorException('onSend/onSendBinary callbacks must return message data in array');
+                    }
+
+                    foreach ($msg_list as $raw_msg) {
+                        try {
+                            $this->sendMessage($socket_id, $is_websocket ? $this->wsEncode($raw_msg, $is_binary) : $raw_msg);
+                            $this->debug('Send message: ' . ($is_binary ? 'Binary Data' : $raw_msg) . ' to #' . $socket_id);
+
+                            if (0 < $this->sending_gap) {
+                                usleep($this->sending_gap);
+                            }
+                        } catch (\Throwable) {
+                            if (is_callable($this->callbacks['onSendFailed'])) {
+                                try {
+                                    call_user_func($this->callbacks['onSendFailed'], $socket_id, $is_binary ? 'Binary Data' : $raw_msg);
+                                } catch (\Throwable $throwable) {
+                                    $this->debug('serverOnSendFailed callback ERROR: ' . $throwable->getMessage());
+                                    $this->error->exceptionHandler($throwable, false, false);
+                                    unset($throwable);
+                                    continue;
+                                }
+                            }
+                        }
+                    }
                 } catch (\Throwable $throwable) {
                     $this->debug('serverOnSend callback ERROR: ' . $throwable->getMessage());
                     $this->error->exceptionHandler($throwable, false, false);
                     unset($throwable);
                     continue;
                 }
-
-                foreach ($msg_list as $raw_msg) {
-                    if ($this->sendMessage($socket_id, $websocket ? $this->wsEncode($raw_msg) : $raw_msg)) {
-                        $this->debug('Send message: ' . $raw_msg . ' to #' . $socket_id);
-
-                        if (0 < $this->sending_gap) {
-                            usleep($this->sending_gap);
-                        }
-                    } else {
-                        if (is_callable($this->callbacks['onSendFailed'])) {
-                            try {
-                                call_user_func($this->callbacks['onSendFailed'], $socket_id, $raw_msg);
-                            } catch (\Throwable $throwable) {
-                                $this->debug('serverOnSendFailed callback ERROR: ' . $throwable->getMessage());
-                                $this->error->exceptionHandler($throwable, false, false);
-                                unset($throwable);
-                                continue;
-                            }
-                        } else {
-                            break;
-                        }
-                    }
-                }
             }
 
             \Fiber::suspend();
         }
+    }
+
+    /**
+     * @param int  $socket_id
+     * @param bool $is_websocket
+     *
+     * @return void
+     * @throws \ReflectionException
+     */
+    public function serverProcessMessage(int $socket_id, bool $is_websocket = false): void
+    {
+        try {
+            $message = $this->readMessage($socket_id);
+
+            if ($is_websocket) {
+                if (isset($this->handshakes[$socket_id])) {
+                    $this->wsSendHandshake($socket_id, $message);
+                    return;
+                }
+
+                $message = $this->wsGetMessage($socket_id, $message);
+            }
+        } catch (\Throwable $throwable) {
+            $this->debug('serverOnMessage debug: ' . $throwable->getMessage());
+            unset($throwable);
+            return;
+        }
+
+        $this->debug('Read message from #' . $socket_id . ': ' . $message);
+
+        if (is_callable($this->callbacks['onMessage'])) {
+            try {
+                call_user_func($this->callbacks['onMessage'], $socket_id, $message);
+            } catch (\Throwable $throwable) {
+                $this->debug('serverOnMessage callback ERROR: ' . $throwable->getMessage());
+                $this->error->exceptionHandler($throwable, false, false);
+                unset($throwable);
+            }
+        }
+
+        unset($socket_id, $is_websocket, $message);
     }
 
     /**
@@ -1290,22 +1338,24 @@ class SocketMgr extends Factory
 
     /**
      * @param string $message
+     * @param bool   $is_binary
      *
      * @return string
      */
-    public function wsEncode(string $message): string
+    public function wsEncode(string $message, bool $is_binary = false): string
     {
         $length = strlen($message);
+        $opcode = $is_binary ? 0x82 : 0x81;
 
-        if (125 >= $length) {
-            $buff = chr(0x81) . chr($length) . $message;
-        } elseif (65535 >= $length) {
-            $buff = chr(0x81) . chr(126) . pack('n', $length) . $message;
+        if ($length <= 125) {
+            $buff = chr($opcode) . chr($length) . $message;
+        } elseif ($length <= 65535) {
+            $buff = chr($opcode) . chr(126) . pack('n', $length) . $message;
         } else {
-            $buff = chr(0x81) . chr(127) . pack('xxxxN', $length) . $message;
+            $buff = chr($opcode) . chr(127) . pack('xxxxN', $length) . $message;
         }
 
-        unset($message, $length);
+        unset($message, $is_binary, $length, $opcode);
         return $buff;
     }
 
