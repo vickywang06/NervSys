@@ -43,8 +43,8 @@ class SocketMgr extends Factory
         'onHandshake'  => null,  //callback(int $socket_id, string $ws_proto): bool, true to allow, otherwise reject.
         'onHeartbeat'  => null,  //callback(int $socket_id): string, heartbeat message send to $socket_id
         'onMessage'    => null,  //callback(int $socket_id, string $message): void
-        'onSend'       => null,  //callback(int $socket_id): array[string], message list send to $socket_id, [msg1, msg2, msg3, ...]
         'onSendBinary' => null,  //callback(int $socket_id): array[binary], message list send to $socket_id, [msg1, msg2, msg3, ...]
+        'onSendString' => null,  //callback(int $socket_id): array[string], message list send to $socket_id, [msg1, msg2, msg3, ...]
         'onSendFailed' => null,  //callback(int $socket_id, string $message): void
         'onClose'      => null   //callback(int $socket_id): void
     ];
@@ -302,9 +302,9 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function onSend(callable $callback_func): self
+    public function onSendBinary(callable $callback_func): self
     {
-        $this->callbacks['onSend'] = $callback_func;
+        $this->callbacks['onSendBinary'] = $callback_func;
 
         unset($callback_func);
         return $this;
@@ -315,9 +315,9 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function onSendBinary(callable $callback_func): self
+    public function onSendString(callable $callback_func): self
     {
-        $this->callbacks['onSendBinary'] = $callback_func;
+        $this->callbacks['onSendString'] = $callback_func;
 
         unset($callback_func);
         return $this;
@@ -590,7 +590,7 @@ class SocketMgr extends Factory
      */
     public function serverOnSend(bool $is_websocket = false): void
     {
-        if (!is_callable($this->callbacks['onSendBinary']) && !is_callable($this->callbacks['onSend'])) {
+        if (!is_callable($this->callbacks['onSendBinary']) && !is_callable($this->callbacks['onSendString'])) {
             return;
         }
 
@@ -610,16 +610,19 @@ class SocketMgr extends Factory
                 }
 
                 try {
-                    $is_binary = true;
-                    $msg_list  = call_user_func($this->callbacks['onSendBinary'], $socket_id);
+                    $msg_list = [];
 
-                    if (empty($msg_list)) {
-                        $is_binary = false;
-                        $msg_list  = call_user_func($this->callbacks['onSend'], $socket_id);
-                    }
+                    foreach ([$this->callbacks['onSendBinary'], $this->callbacks['onSendString']] as $id => $callback) {
+                        if (!is_callable($callback)) {
+                            continue;
+                        }
 
-                    if (!is_array($msg_list)) {
-                        throw new \ErrorException('onSend/onSendBinary callbacks must return message data in array');
+                        $is_binary = 0 === $id;
+                        $msg_list  = call_user_func($callback, $socket_id);
+
+                        if (!is_array($msg_list)) {
+                            throw new \ErrorException('onSendBinary/onSendString callbacks must return message data in array');
+                        }
                     }
 
                     foreach ($msg_list as $raw_msg) {
@@ -856,13 +859,13 @@ class SocketMgr extends Factory
      */
     public function clientOnSend(): void
     {
-        if (!is_callable($this->callbacks['onSend'])) {
+        if (!is_callable($this->callbacks['onSendString'])) {
             return;
         }
 
         while (true) {
             try {
-                $msg_list = call_user_func($this->callbacks['onSend'], $this->master_id);
+                $msg_list = call_user_func($this->callbacks['onSendString'], $this->master_id);
 
                 foreach ($msg_list as $raw_msg) {
                     if ($this->sendMessage($this->master_id, $raw_msg)) {
