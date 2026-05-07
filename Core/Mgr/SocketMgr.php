@@ -4,7 +4,7 @@
  * Socket Manager library
  *
  * Copyright 2016-2023 Jerry Shaw <jerry-shaw@live.com>
- * Copyright 2016-2025 秋水之冰 <27206617@qq.com>
+ * Copyright 2016-2026 秋水之冰 <27206617@qq.com>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -77,7 +77,7 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function setDebugMode(bool $debug_mode): self
+    public function setDebugMode(bool $debug_mode): static
     {
         $this->debug_mode = $debug_mode;
 
@@ -90,7 +90,7 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function setBlockMode(bool $block_mode): self
+    public function setBlockMode(bool $block_mode): static
     {
         $this->block_mode = $block_mode;
 
@@ -104,7 +104,7 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function setConnectOptions(int $retry_times, int $wait_seconds): self
+    public function setConnectOptions(int $retry_times, int $wait_seconds): static
     {
         $this->connect_opt = [$retry_times, $wait_seconds];
 
@@ -118,7 +118,7 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function setReadTimeout(int $seconds, int|null $microseconds = null): self
+    public function setReadTimeout(int $seconds, int|null $microseconds = null): static
     {
         $this->read_timeout = [$seconds, $microseconds];
 
@@ -131,7 +131,7 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function setSendingGap(int $microseconds): self
+    public function setSendingGap(int $microseconds): static
     {
         $this->sending_gap = $microseconds;
 
@@ -144,7 +144,7 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function setAliveTimeout(int $seconds): self
+    public function setAliveTimeout(int $seconds): static
     {
         $this->alive_timeout = $seconds;
 
@@ -157,7 +157,7 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function setMaxNumInLoop(int $num_in_loop): self
+    public function setMaxNumInLoop(int $num_in_loop): static
     {
         $this->max_num_in_loop = $num_in_loop;
 
@@ -174,7 +174,7 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function setSSLCert(string $local_cert, string $local_pk = '', string $passphrase = '', bool $self_signed = false, string $ssl_transport = 'ssl'): self
+    public function setSSLCert(string $local_cert, string $local_pk = '', string $passphrase = '', bool $self_signed = false, string $ssl_transport = 'ssl'): static
     {
         $options = [
             'local_cert'          => $local_cert,
@@ -205,7 +205,7 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function setContextOptions(string $wrapper, array $options): self
+    public function setContextOptions(string $wrapper, array $options): static
     {
         $this->options[$wrapper] = $options;
 
@@ -218,7 +218,7 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function setHeartbeatChar(string $heartbeat_char): self
+    public function setHeartbeatChar(string $heartbeat_char): static
     {
         $this->heartbeat = $heartbeat_char;
 
@@ -233,7 +233,7 @@ class SocketMgr extends Factory
      * @return $this
      * @throws \Exception
      */
-    public function setEventListener(string $event, callable $callback): self
+    public function setEventListener(string $event, callable $callback): static
     {
         if (!array_key_exists($event, $this->callbacks)) {
             throw new \Exception('"' . $event . '" NOT accept!', E_USER_ERROR);
@@ -250,7 +250,7 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function onConnect(callable $callback_func): self
+    public function onConnect(callable $callback_func): static
     {
         $this->callbacks['onConnect'] = $callback_func;
 
@@ -263,7 +263,7 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function onHandshake(callable $callback_func): self
+    public function onHandshake(callable $callback_func): static
     {
         $this->callbacks['onHandshake'] = $callback_func;
 
@@ -276,7 +276,7 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function onHeartbeat(callable $callback_func): self
+    public function onHeartbeat(callable $callback_func): static
     {
         $this->callbacks['onHeartbeat'] = $callback_func;
 
@@ -289,7 +289,7 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function onMessage(callable $callback_func): self
+    public function onMessage(callable $callback_func): static
     {
         $this->callbacks['onMessage'] = $callback_func;
 
@@ -302,7 +302,7 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function onSendBinary(callable $callback_func): self
+    public function onSendBinary(callable $callback_func): static
     {
         $this->callbacks['onSendBinary'] = $callback_func;
 
@@ -315,7 +315,7 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function onSendString(callable $callback_func): self
+    public function onSendString(callable $callback_func): static
     {
         $this->callbacks['onSendString'] = $callback_func;
 
@@ -328,7 +328,7 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function onSendFailed(callable $callback_func): self
+    public function onSendFailed(callable $callback_func): static
     {
         $this->callbacks['onSendFailed'] = $callback_func;
 
@@ -341,7 +341,7 @@ class SocketMgr extends Factory
      *
      * @return $this
      */
-    public function onClose(callable $callback_func): self
+    public function onClose(callable $callback_func): static
     {
         $this->callbacks['onClose'] = $callback_func;
 
@@ -609,9 +609,10 @@ class SocketMgr extends Factory
                     \Fiber::suspend();
                 }
 
-                try {
-                    $msg_list = [];
+                $msg_list  = [];
+                $is_binary = true;
 
+                try {
                     foreach ([$this->callbacks['onSendBinary'], $this->callbacks['onSendString']] as $id => $callback) {
                         if (!is_callable($callback)) {
                             continue;
@@ -620,37 +621,40 @@ class SocketMgr extends Factory
                         $is_binary = 0 === $id;
                         $msg_list  = call_user_func($callback, $socket_id);
 
-                        if (!is_array($msg_list)) {
-                            throw new \ErrorException('onSendBinary/onSendString callbacks must return message data in array');
+                        if (is_array($msg_list)) {
+                            break;
                         }
-                    }
 
-                    foreach ($msg_list as $raw_msg) {
-                        try {
-                            $this->sendMessage($socket_id, $is_websocket ? $this->wsEncode($raw_msg, $is_binary) : $raw_msg);
-                            $this->debug('Send message: ' . ($is_binary ? 'Binary Data' : $raw_msg) . ' to #' . $socket_id);
-
-                            if (0 < $this->sending_gap) {
-                                usleep($this->sending_gap);
-                            }
-                        } catch (\Throwable) {
-                            if (is_callable($this->callbacks['onSendFailed'])) {
-                                try {
-                                    call_user_func($this->callbacks['onSendFailed'], $socket_id, $is_binary ? 'Binary Data' : $raw_msg);
-                                } catch (\Throwable $throwable) {
-                                    $this->debug('serverOnSendFailed callback ERROR: ' . $throwable->getMessage());
-                                    $this->error->exceptionHandler($throwable, false, false);
-                                    unset($throwable);
-                                    continue;
-                                }
-                            }
-                        }
+                        throw new \ErrorException('onSendBinary/onSendString callback must return message data in array!');
                     }
                 } catch (\Throwable $throwable) {
                     $this->debug('serverOnSend callback ERROR: ' . $throwable->getMessage());
                     $this->error->exceptionHandler($throwable, false, false);
                     unset($throwable);
-                    continue;
+                    break;
+                }
+
+                foreach ($msg_list as $raw_msg) {
+                    try {
+                        $this->sendMessage($socket_id, $is_websocket ? $this->wsEncode($raw_msg, $is_binary) : $raw_msg);
+                        $this->debug('Send message: ' . ($is_binary ? 'Binary Data' : $raw_msg) . ' to #' . $socket_id);
+
+                        if (0 < $this->sending_gap) {
+                            usleep($this->sending_gap);
+                        }
+                    } catch (\Throwable) {
+                        if (!is_callable($this->callbacks['onSendFailed'])) {
+                            continue;
+                        }
+
+                        try {
+                            call_user_func($this->callbacks['onSendFailed'], $socket_id, $is_binary ? 'Binary Data' : $raw_msg);
+                        } catch (\Throwable $throwable) {
+                            $this->debug('serverOnSendFailed callback ERROR: ' . $throwable->getMessage());
+                            $this->error->exceptionHandler($throwable, false, false);
+                            unset($throwable);
+                        }
+                    }
                 }
             }
 
@@ -816,6 +820,8 @@ class SocketMgr extends Factory
 
     /**
      * @return void
+     * @throws \ReflectionException
+     * @throws \Throwable
      */
     public function clientOnHeartbeat(): void
     {
@@ -843,10 +849,11 @@ class SocketMgr extends Factory
                 continue;
             }
 
-            if ($this->sendMessage($this->master_id, $heartbeat)) {
+            try {
+                $this->sendMessage($this->master_id, $heartbeat);
                 $this->activities[$this->master_id][1] = $now_time;
                 $this->debug('Send heartbeat to server');
-            } else {
+            } catch (\Throwable) {
                 $this->clientReconnect();
             }
         }
@@ -859,39 +866,57 @@ class SocketMgr extends Factory
      */
     public function clientOnSend(): void
     {
-        if (!is_callable($this->callbacks['onSendString'])) {
+        if (!is_callable($this->callbacks['onSendBinary']) && !is_callable($this->callbacks['onSendString'])) {
             return;
         }
 
         while (true) {
+            $msg_list = [];
+
             try {
-                $msg_list = call_user_func($this->callbacks['onSendString'], $this->master_id);
-
-                foreach ($msg_list as $raw_msg) {
-                    if ($this->sendMessage($this->master_id, $raw_msg)) {
-                        $this->debug('Send message to server: ' . $raw_msg);
-
-                        if (0 < $this->sending_gap) {
-                            usleep($this->sending_gap);
-                        }
-                    } else {
-                        $this->clientReconnect();
-
-                        if (is_callable($this->callbacks['onSendFailed'])) {
-                            try {
-                                call_user_func($this->callbacks['onSendFailed'], $this->master_id, $raw_msg);
-                            } catch (\Throwable $throwable) {
-                                $this->debug('clientOnSendFailed callback ERROR: ' . $throwable->getMessage());
-                                $this->error->exceptionHandler($throwable, false, false);
-                                unset($throwable);
-                            }
-                        }
+                foreach ([$this->callbacks['onSendBinary'], $this->callbacks['onSendString']] as $callback) {
+                    if (!is_callable($callback)) {
+                        continue;
                     }
+
+                    $msg_list = call_user_func($callback, $this->master_id);
+
+                    if (is_array($msg_list)) {
+                        break;
+                    }
+
+                    throw new \ErrorException('onSendBinary/onSendString callback must return message data in array!');
                 }
             } catch (\Throwable $throwable) {
                 $this->debug('clientOnSend callback ERROR: ' . $throwable->getMessage());
                 $this->error->exceptionHandler($throwable, false, false);
                 unset($throwable);
+                break;
+            }
+
+            foreach ($msg_list as $raw_msg) {
+                try {
+                    $this->sendMessage($this->master_id, $raw_msg);
+                    $this->debug('Send message to server: ' . $raw_msg);
+
+                    if (0 < $this->sending_gap) {
+                        usleep($this->sending_gap);
+                    }
+                } catch (\Throwable) {
+                    $this->clientReconnect();
+
+                    if (!is_callable($this->callbacks['onSendFailed'])) {
+                        continue;
+                    }
+
+                    try {
+                        call_user_func($this->callbacks['onSendFailed'], $this->master_id, $raw_msg);
+                    } catch (\Throwable $throwable) {
+                        $this->debug('clientOnSendFailed callback ERROR: ' . $throwable->getMessage());
+                        $this->error->exceptionHandler($throwable, false, false);
+                        unset($throwable);
+                    }
+                }
             }
 
             \Fiber::suspend();
@@ -996,28 +1021,26 @@ class SocketMgr extends Factory
      * @param int    $socket_id
      * @param string $message
      *
-     * @return bool
+     * @return void
      * @throws \ReflectionException
      */
-    public function sendMessage(int $socket_id, string $message): bool
+    public function sendMessage(int $socket_id, string $message): void
     {
         try {
             if ('udp' !== $this->sock_type) {
-                if (false === ($send = fwrite($this->connections[$socket_id], $message))) {
+                if (false === fwrite($this->connections[$socket_id], $message)) {
                     throw new \Exception($socket_id . ' lost connection!', E_USER_NOTICE);
                 }
             } else {
-                $send = stream_socket_sendto($this->connections[$socket_id], $message);
+                stream_socket_sendto($this->connections[$socket_id], $message);
             }
         } catch (\Throwable $throwable) {
             $this->debug('Send message ERROR: ' . $throwable->getMessage());
             $this->closeSocket($socket_id);
             unset($throwable);
-            $send = false;
         }
 
         unset($socket_id, $message);
-        return is_int($send);
     }
 
     /**

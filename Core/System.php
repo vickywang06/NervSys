@@ -4,7 +4,7 @@
  * System Traits
  *
  * Copyright 2016-2023 Jerry Shaw <jerry-shaw@live.com>
- * Copyright 2016-2025 秋水之冰 <27206617@qq.com>
+ * Copyright 2016-2026 秋水之冰 <27206617@qq.com>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -131,26 +131,44 @@ trait System
     }
 
     /**
-     * @param string $path
+     * @param string $root_path
      *
      * @return $this
      */
-    public function setRootPath(string $path): self
+    public function setRootPath(string $root_path): self
     {
         $this->removeAutoloadPath($this->app->root_path);
-        $this->addAutoloadPath($path);
+        $this->addAutoloadPath($root_path);
+
+        $log_path = rtrim($root_path, '\\/') . DIRECTORY_SEPARATOR . 'logs';
 
         try {
-            $log_path = rtrim($path, '\\/') . DIRECTORY_SEPARATOR . 'logs';
             rename($this->app->log_path, $log_path);
-            $this->app->log_path = $log_path;
         } catch (\Throwable) {
             //Directory exists
         }
 
-        $this->app->root_path = $path;
+        $this->app->log_path  = $log_path;
+        $this->app->root_path = $root_path;
 
-        unset($path, $log_path);
+        unset($root_path, $log_path);
+        return $this;
+    }
+
+    /**
+     * @param string $mode
+     *
+     * @return $this
+     */
+    public function setMode(string $mode): self
+    {
+        if (!in_array($mode, [App::MODE_API, App::MODE_MODULE], true)) {
+            throw new \InvalidArgumentException('Invalid mode: ' . $mode . '! Only Support: "' . App::MODE_API . '", "' . App::MODE_MODULE . '"');
+        }
+
+        $this->app->setMode($mode);
+
+        unset($mode);
         return $this;
     }
 
@@ -161,7 +179,7 @@ trait System
      */
     public function setApiDir(string $dir_name): self
     {
-        $this->app->api_dir = $dir_name;
+        $this->app->setApiDir($dir_name);
 
         unset($dir_name);
         return $this;

@@ -4,7 +4,7 @@
  * Proc Manager library
  *
  * Copyright 2016-2023 Jerry Shaw <jerry-shaw@live.com>
- * Copyright 2016-2025 秋水之冰 <27206617@qq.com>
+ * Copyright 2016-2026 秋水之冰 <27206617@qq.com>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -68,7 +68,7 @@ class ProcMgr extends Factory
      *
      * @return $this
      */
-    public function command(array $command): self
+    public function command(array $command): static
     {
         $this->command = $command;
 
@@ -81,7 +81,7 @@ class ProcMgr extends Factory
      *
      * @return $this
      */
-    public function setArgvEndChar(string $end_char): self
+    public function setArgvEndChar(string $end_char): static
     {
         $this->argv_end_char = $end_char;
 
@@ -94,7 +94,7 @@ class ProcMgr extends Factory
      *
      * @return $this
      */
-    public function setWorkDir(string $working_path): self
+    public function setWorkDir(string $working_path): static
     {
         $this->work_dir = $working_path;
 
@@ -108,7 +108,7 @@ class ProcMgr extends Factory
      *
      * @return $this
      */
-    public function readAt(int $seconds, int|null $microseconds = null): self
+    public function readAt(int $seconds, int|null $microseconds = null): static
     {
         $this->read_seconds      = $seconds;
         $this->read_microseconds = $microseconds;
@@ -125,15 +125,15 @@ class ProcMgr extends Factory
      * @return $this
      * @throws \Exception
      */
-    public function run(int $idx = 0): self
+    public function run(int $idx = 0): static
     {
         try {
             $proc = proc_open(
                 $this->command,
                 [
                     ['pipe', 'rb'],
-                    ['socket', 'wb'],
-                    ['socket', 'wb']
+                    ['pipe', 'wb'],
+                    ['pipe', 'wb']
                 ],
                 $pipes,
                 $this->work_dir
@@ -178,7 +178,7 @@ class ProcMgr extends Factory
      * @return $this
      * @throws \Exception
      */
-    public function runMP(int $run_proc = 8, int $max_executions = 2000): self
+    public function runMP(int $run_proc = 8, int $max_executions = 2000): static
     {
         $this->proc_max_executions = $max_executions;
 
@@ -266,7 +266,7 @@ class ProcMgr extends Factory
      *
      * @return self
      */
-    public function putJob(string $job_argv, callable|null $stdout_callback = null, callable|null $stderr_callback = null): self
+    public function putJob(string $job_argv, callable|null $stdout_callback = null, callable|null $stderr_callback = null): static
     {
         try {
             $idx = $this->getIdleProcIdx();
@@ -301,10 +301,10 @@ class ProcMgr extends Factory
      * @param callable|null $stderr_callback
      * @param callable|null ...$other_callbacks
      *
-     * @return void
+     * @return int
      * @throws \ReflectionException
      */
-    public function awaitProc(callable|null $stdout_callback = null, callable|null $stderr_callback = null, callable|null ...$other_callbacks): void
+    public function awaitProc(callable|null $stdout_callback = null, callable|null $stderr_callback = null, callable|null ...$other_callbacks): int
     {
         $idx = key($this->proc_pid);
 
@@ -325,7 +325,11 @@ class ProcMgr extends Factory
             $this->readIPC($stdout_callback, $stderr_callback);
         }
 
-        unset($stdout_callback, $stderr_callback, $other_callbacks, $idx, $callback, $argv);
+        $status    = proc_get_status($this->proc_list[$idx]);
+        $exit_code = !$status['running'] ? $status['exitcode'] : -1;
+
+        unset($stdout_callback, $stderr_callback, $other_callbacks, $idx, $callback, $argv, $status);
+        return $exit_code;
     }
 
     /**
@@ -342,7 +346,7 @@ class ProcMgr extends Factory
             proc_close($this->proc_list[$idx]);
         }
 
-        unset($this->proc_list[$idx], $this->proc_stdin[$idx], $this->proc_stdout[$idx], $this->proc_stderr[$idx], $idx);
+        unset($this->proc_list[$idx], $this->proc_stdin[$idx], $this->proc_stdout[$idx], $this->proc_stderr[$idx], $this->proc_idle['P' . $idx], $idx);
     }
 
     /**

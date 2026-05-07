@@ -53,7 +53,7 @@ class libMySQL extends Factory
      * @return $this
      * @throws \ReflectionException
      */
-    public function bindLibPdo(libPDO $libPDO): self
+    public function bindLibPdo(libPDO $libPDO): static
     {
         $this->libPDO = $libPDO->pdo instanceof \PDO ? $libPDO : $libPDO->connect();
         $this->pdo    = $this->libPDO->pdo;
@@ -69,7 +69,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function as(string $alias): self
+    public function as(string $alias): static
     {
         $this->runtime_data['alias'] = $alias;
 
@@ -82,7 +82,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function force(): self
+    public function force(): static
     {
         $this->force_execute = true;
         return $this;
@@ -133,7 +133,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function autoCleanup(): self
+    public function autoCleanup(): static
     {
         register_shutdown_function([$this, 'clearRuntime']);
         register_shutdown_function([$this, 'clearTransaction']);
@@ -148,7 +148,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function autoReconnect(int $retry_times): self
+    public function autoReconnect(int $retry_times): static
     {
         $this->retry_limit = $retry_times;
 
@@ -164,7 +164,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function setTable(string $table_name, bool $with_prefix = false): self
+    public function setTable(string $table_name, bool $with_prefix = false): static
     {
         if ($with_prefix) {
             $table_name = $this->table_prefix . $table_name;
@@ -184,7 +184,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function setTableOnce(string $table_name, bool $with_prefix = false): self
+    public function setTableOnce(string $table_name, bool $with_prefix = false): static
     {
         if ($with_prefix) {
             $table_name = $this->table_prefix . $table_name;
@@ -203,7 +203,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function setTablePrefix(string $table_prefix): self
+    public function setTablePrefix(string $table_prefix): static
     {
         $this->table_prefix = $table_prefix;
 
@@ -241,44 +241,6 @@ class libMySQL extends Factory
         }
 
         return $table_name;
-    }
-
-    /**
-     * Fetch one row
-     *
-     * @param int $fetch_style
-     *
-     * @return array
-     * @throws \ReflectionException
-     */
-    public function fetch(int $fetch_style = \PDO::FETCH_ASSOC): array
-    {
-        $exec = $this->executeSql($this->buildSql(), $this->runtime_data['bind'] ?? []);
-        $data = $exec ? $this->PDOStatement->fetch($fetch_style) : [];
-
-        if (!is_array($data)) {
-            $data = false !== $data ? [$data] : [];
-        }
-
-        unset($fetch_style, $exec);
-        return $data;
-    }
-
-    /**
-     * Fetch all rows
-     *
-     * @param int $fetch_style
-     *
-     * @return array
-     * @throws \ReflectionException
-     */
-    public function fetchAll(int $fetch_style = \PDO::FETCH_ASSOC): array
-    {
-        $exec = $this->executeSql($this->buildSql(), $this->runtime_data['bind'] ?? []);
-        $data = $exec ? $this->PDOStatement->fetchAll($fetch_style) : [];
-
-        unset($fetch_style, $exec);
-        return $data;
     }
 
     /**
@@ -333,13 +295,23 @@ class libMySQL extends Factory
     }
 
     /**
+     * Make a readable SQL before execute for debug
+     *
+     * @return string
+     */
+    public function toReadableSql(): string
+    {
+        return $this->debugSql($this->buildSql(), $this->runtime_data['bind'] ?? []);
+    }
+
+    /**
      * Insert action
      *
      * @param array $data
      *
      * @return $this
      */
-    public function insert(array $data): self
+    public function insert(array $data): static
     {
         $this->isReady();
 
@@ -358,7 +330,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function update(array $data): self
+    public function update(array $data): static
     {
         $this->isReady();
 
@@ -377,7 +349,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function replace(array $data, bool $use_set = false): self
+    public function replace(array $data, bool $use_set = false): static
     {
         $this->isReady();
 
@@ -401,7 +373,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function select(string ...$column): self
+    public function select(string ...$column): static
     {
         $this->isReady();
 
@@ -425,7 +397,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function delete(): self
+    public function delete(): static
     {
         $this->isReady();
 
@@ -443,7 +415,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function join(string $table, string $type = 'INNER', bool $with_prefix = true): self
+    public function join(string $table, string $type = 'INNER', bool $with_prefix = true): static
     {
         if ($with_prefix) {
             $table = $this->table_prefix . $table;
@@ -465,7 +437,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function on(array ...$where): self
+    public function on(array ...$where): static
     {
         if (empty($where)) {
             return $this;
@@ -485,7 +457,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function where(array ...$where): self
+    public function where(array ...$where): static
     {
         $this->runtime_data['where'] ??= [];
         $this->runtime_data['stage'] = 'where';
@@ -509,7 +481,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function having(array ...$where): self
+    public function having(array ...$where): static
     {
         $this->runtime_data['having'] ??= [];
         $this->runtime_data['stage']  = 'having';
@@ -533,7 +505,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function and(array ...$where): self
+    public function and(array ...$where): static
     {
         $where = array_filter($where);
 
@@ -560,7 +532,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function or(array ...$where): self
+    public function or(array ...$where): static
     {
         $where = array_filter($where);
 
@@ -587,7 +559,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function group(string ...$fields): self
+    public function group(string ...$fields): static
     {
         foreach ($fields as $key => $field) {
             $fields[$key] = $this->getSqlRaw($field) ?? $field;
@@ -606,7 +578,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function order(array $orders): self
+    public function order(array $orders): static
     {
         $order = [];
 
@@ -654,7 +626,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function limit(int $offset, int $length = 0): self
+    public function limit(int $offset, int $length = 0): static
     {
         $this->runtime_data['limit'] = 0 < $length
             ? (string)$offset . ', ' . (string)$length
@@ -672,7 +644,7 @@ class libMySQL extends Factory
      *
      * @return $this
      */
-    public function lock(string ...$modes): self
+    public function lock(string ...$modes): static
     {
         $this->runtime_data['lock'] = implode(' ', $modes);
 
@@ -750,6 +722,44 @@ class libMySQL extends Factory
 
         unset($sql, $fetch_style, $col_no, $retry_times);
         return $pdo_statement;
+    }
+
+    /**
+     * Fetch one row
+     *
+     * @param int $fetch_style
+     *
+     * @return array
+     * @throws \ReflectionException
+     */
+    public function fetch(int $fetch_style = \PDO::FETCH_ASSOC): array
+    {
+        $exec = $this->executeSql($this->buildSql(), $this->runtime_data['bind'] ?? []);
+        $data = $exec ? $this->PDOStatement->fetch($fetch_style) : [];
+
+        if (!is_array($data)) {
+            $data = false !== $data ? [$data] : [];
+        }
+
+        unset($fetch_style, $exec);
+        return $data;
+    }
+
+    /**
+     * Fetch all rows
+     *
+     * @param int $fetch_style
+     *
+     * @return array
+     * @throws \ReflectionException
+     */
+    public function fetchAll(int $fetch_style = \PDO::FETCH_ASSOC): array
+    {
+        $exec = $this->executeSql($this->buildSql(), $this->runtime_data['bind'] ?? []);
+        $data = $exec ? $this->PDOStatement->fetchAll($fetch_style) : [];
+
+        unset($fetch_style, $exec);
+        return $data;
     }
 
     /**
@@ -909,7 +919,7 @@ class libMySQL extends Factory
     protected function executeSql(string $runtime_sql, array $runtime_params = [], int $retry_times = 0): bool
     {
         try {
-            $this->last_sql     = $this->getSqlReadable($runtime_sql, $runtime_params);
+            $this->last_sql     = $this->debugSql($runtime_sql, $runtime_params);
             $this->PDOStatement = $this->pdo->prepare($runtime_sql);
 
             $result = $this->PDOStatement->execute($runtime_params);
@@ -1023,7 +1033,7 @@ class libMySQL extends Factory
         if (!isset($this->runtime_data['where']) || empty($this->runtime_data['where'])) {
             $this->force_execute = true;
 
-            throw new \PDOException('WARNING: WHERE clause is missing in SQL: ' . $this->getSqlReadable($this->buildSql(), $this->runtime_data['bind'] ?? []) . '. Using force() to bypass security checking.', E_USER_ERROR);
+            throw new \PDOException('WARNING: WHERE clause is missing in SQL: ' . $this->debugSql($this->buildSql(), $this->runtime_data['bind'] ?? []) . '. Using force() to bypass security checking.', E_USER_ERROR);
         }
     }
 
@@ -1034,7 +1044,7 @@ class libMySQL extends Factory
     {
         if (isset($this->runtime_data['action'])) {
             throw new \PDOException(
-                $this->getSqlReadable($this->buildSql(), $this->runtime_data['bind'] ?? []) . ' NOT execute!',
+                $this->debugSql($this->buildSql(), $this->runtime_data['bind'] ?? []) . ' NOT execute!',
                 E_USER_ERROR
             );
         }
@@ -1314,14 +1324,15 @@ class libMySQL extends Factory
     }
 
     /**
-     * Build readable SQL with params
+     * FOR DEBUG ONLY
+     * Build full SQL with all bind params
      *
      * @param string $runtime_sql
      * @param array  $bind_params
      *
      * @return string
      */
-    protected function getSqlReadable(string $runtime_sql, array $bind_params): string
+    protected function debugSql(string $runtime_sql, array $bind_params): string
     {
         $bind_params = array_map(
             function (int|float|string|null $value): int|float|string|null
