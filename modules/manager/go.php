@@ -27,7 +27,8 @@ use Nervsys\Ext\libFileIO;
 
 class go extends Factory
 {
-    const SEPARATOR = '@';
+    const TAG_SEPARATOR  = '@';
+    const TYPE_SEPARATOR = '#';
 
     public App     $app;
     public ProcMgr $procMgr;
@@ -41,6 +42,7 @@ class go extends Factory
 
     /**
      * @throws \ReflectionException
+     * @throws \Exception
      */
     public function __construct()
     {
@@ -72,7 +74,8 @@ class go extends Factory
         );
 
         if (0 !== $exit_code || is_null($git_ver)) {
-            throw new \Exception('Git not found. Please install Git and add it to your PATH environment variable.', E_USER_WARNING);
+            $this->output('Git not found. Please install Git and add it to your PATH environment variable.', true, true);
+            return;
         }
 
         $this->output('Git version: ' . $git_ver, true);
@@ -108,7 +111,8 @@ class go extends Factory
         $support_host = array_keys($this->local_env['git_platforms']);
 
         if (!in_array($source_host, $support_host, true)) {
-            throw new \Exception('Source url "' . $repo . '" is not supported. Supported hosts are: ' . implode(', ', $support_host), E_USER_WARNING);
+            $this->output('Source url "' . $repo . '" is not supported. Supported hosts are: ' . implode(', ', $support_host), true, true);
+            return $this;
         }
 
         $this->local_env['git_source'] = $source_host;
@@ -124,6 +128,7 @@ class go extends Factory
      *
      * @return void
      * @throws \ReflectionException
+     * @throws \Exception
      */
     public function init(string $repo, string $root = ''): void
     {
@@ -146,22 +151,36 @@ class go extends Factory
      *
      * @return void
      * @throws \ReflectionException
+     * @throws \Exception
      */
     public function install(string $repo, string $root = ''): void
     {
         if (!str_contains($repo, '/')) {
-            throw new \InvalidArgumentException('Invalid repository format. Expected "{user}/{repo}" or "{user}/{repo}#{tag}".');
+            $this->output('Invalid repository format. Expected "{user}/{repo}", "{user}/{repo}{@tag}", "{user}/{repo}{#source: https/git}" or "{user}/{repo}{@tag}{#source: https/git}".', true, true);
+            return;
         }
 
         $tag  = '';
         $type = 'https';
 
-        if (str_contains($repo, self::SEPARATOR)) {
-            [$repo, $tag] = explode(self::SEPARATOR, $repo, 2);
+        $pos_tag  = strpos($repo, self::TAG_SEPARATOR);
+        $pos_type = strpos($repo, self::TYPE_SEPARATOR);
 
-            if (str_contains($tag, self::SEPARATOR)) {
-                [$tag, $type] = explode(self::SEPARATOR, $tag, 2);
+        if (false !== $pos_tag && false !== $pos_type) {
+            if ($pos_tag >= $pos_type) {
+                $this->output('Invalid repository format. Expected "{user}/{repo}{@tag}{#source: https/git}" with tag before source.', true, true);
+                return;
             }
+
+            $tag  = substr($repo, $pos_tag + 1, $pos_type - $pos_tag - 1);
+            $type = substr($repo, $pos_type + 1);
+            $repo = substr($repo, 0, $pos_tag);
+        } elseif (false !== $pos_tag) {
+            $tag  = substr($repo, $pos_tag + 1);
+            $repo = substr($repo, 0, $pos_tag);
+        } elseif (false !== $pos_type) {
+            $type = substr($repo, $pos_type + 1);
+            $repo = substr($repo, 0, $pos_type);
         }
 
         if ($this->app->is_cli && '' !== $root) {
@@ -173,6 +192,7 @@ class go extends Factory
         $metadata = $this->getModuleMeta($repo_name);
 
         if (empty($metadata)) {
+            // Install module
             $git_url = $this->local_env['git_platforms'][$this->local_env['git_source']]['git' === $type ? 'ssh_url' : 'https_url'];
 
             $git_url = str_replace('{user}', $user_name, $git_url);
@@ -181,16 +201,28 @@ class go extends Factory
             $this->output('Installing "' . $repo_name . '" from ' . $git_url);
 
             $this->installUrl($repo_name, $git_url, $tag);
-            unset($git_url);
         } else {
-            $this->output($repo_name . ' already exists. Checking dependencies...');
+            // Update module
+            $this->output('Updating ' . $repo_name . ' and dependencies...');
+
+            $metadata['repo']    ??= '';
+            $metadata['version'] ??= '';
+
+            if ('' !== $metadata['repo'] && '' !== $tag && $tag !== $metadata['version']) {
+                $pos_tag = strpos($metadata['repo'], self::TAG_SEPARATOR);
+                $git_url = false !== $pos_tag
+                    ? substr($metadata['repo'], 0, $pos_tag)
+                    : $metadata['repo'];
+
+                $this->updateUrl($repo_name, $git_url, $tag);
+            }
 
             if (isset($metadata['dependencies']) && !empty($metadata['dependencies'])) {
                 $this->installDependencies($metadata['dependencies']);
             }
         }
 
-        unset($repo, $root, $tag, $type, $user_name, $repo_name, $metadata);
+        unset($repo, $root, $tag, $type, $pos_tag, $pos_type, $user_name, $repo_name, $metadata, $git_url);
     }
 
     /**
@@ -200,25 +232,14 @@ class go extends Factory
      *
      * @return void
      * @throws \ReflectionException
+     * @throws \Exception
      */
     public function installUrl(string $repo, string $url, string $tag = ''): void
     {
         $metadata = $this->getModuleMeta($repo);
 
         if (empty($metadata)) {
-            if (str_starts_with($url, 'git@')) {
-                if ('' === $this->ssk_key) {
-                    $this->output('SSH Key NOT found, or, OpenSSH NOT installed.');
-                    $this->output('Skip installing "' . $repo . '" from ' . $url);
-
-                    unset($repo, $url, $tag, $metadata);
-                    return;
-                }
-
-                putenv('GIT_SSH_COMMAND=ssh -T -i ' . escapeshellarg($this->ssk_key) . ' -o StrictHostKeyChecking=no');
-            } else {
-                putenv('GIT_SSH_COMMAND=');
-            }
+            $this->runSshCommand($url);
 
             $command = ['git', 'clone'];
 
@@ -253,6 +274,51 @@ class go extends Factory
     }
 
     /**
+     * @param string $repo
+     * @param string $url
+     * @param string $tag
+     *
+     * @return void
+     * @throws \ReflectionException
+     * @throws \Exception
+     */
+    public function updateUrl(string $repo, string $url, string $tag = ''): void
+    {
+        $this->runSshCommand($url);
+
+        $path = $this->module_root . $repo;
+
+        $command = ['git', 'fetch', 'origin'];
+        $this->procMgr
+            ->command($command)
+            ->setWorkDir($path)
+            ->run()
+            ->awaitProc([$this, 'output'], [$this, 'output']);
+
+        if ('' !== $tag) {
+            $command = ['git', 'checkout', $tag];
+            $this->procMgr
+                ->command($command)
+                ->setWorkDir($path)
+                ->run()
+                ->awaitProc([$this, 'output'], [$this, 'output']);
+        }
+
+        $command   = ['git', 'pull'];
+        $exit_code = $this->procMgr
+            ->command($command)
+            ->setWorkDir($path)
+            ->run()
+            ->awaitProc([$this, 'output'], [$this, 'output']);
+
+        if (0 !== $exit_code) {
+            $this->output('Failed to update ' . $repo);
+        }
+
+        unset($repo, $url, $tag, $path, $command, $exit_code);
+    }
+
+    /**
      * @param array $repo_dependencies
      *
      * @return void
@@ -261,8 +327,8 @@ class go extends Factory
     public function installDependencies(array $repo_dependencies): void
     {
         foreach ($repo_dependencies as $repo => $dependency) {
-            [$url, $tag] = str_contains($dependency, self::SEPARATOR)
-                ? explode(self::SEPARATOR, $dependency)
+            [$url, $tag] = str_contains($dependency, self::TAG_SEPARATOR)
+                ? explode(self::TAG_SEPARATOR, $dependency)
                 : [$dependency, ''];
 
             $this->installUrl($repo, $url, $tag);
@@ -274,10 +340,12 @@ class go extends Factory
     /**
      * @param string $message
      * @param bool   $empty_line
+     * @param bool   $throw_exception
      *
      * @return void
+     * @throws \Exception
      */
-    public function output(string $message, bool $empty_line = false): void
+    public function output(string $message, bool $empty_line = false, bool $throw_exception = false): void
     {
         echo $message . PHP_EOL;
 
@@ -285,9 +353,12 @@ class go extends Factory
             echo PHP_EOL;
         }
 
+        if ($throw_exception) {
+            throw new \Exception($message, E_USER_ERROR);
+        }
+
         unset($message, $empty_line);
     }
-
 
     /**
      * @param string $repo
@@ -320,6 +391,7 @@ class go extends Factory
     /**
      * @return string
      * @throws \ReflectionException
+     * @throws \Exception
      */
     private function findSshKey(): string
     {
@@ -361,10 +433,33 @@ class go extends Factory
     }
 
     /**
+     * @param string $url
+     *
+     * @return void
+     * @throws \Exception
+     */
+    private function runSshCommand(string $url): void
+    {
+        if (str_starts_with($url, 'git@')) {
+            if ('' !== $this->ssk_key) {
+                putenv('GIT_SSH_COMMAND=ssh -T -i ' . escapeshellarg($this->ssk_key) . ' -o StrictHostKeyChecking=no');
+                unset($url);
+                return;
+            }
+
+            $this->output('SSH Key NOT found, or, OpenSSH NOT installed.');
+            $this->output('Skip installing module from ' . $url);
+        }
+
+        putenv('GIT_SSH_COMMAND=');
+        unset($url);
+    }
+
+    /**
      * @return void
      */
     private function saveEnv(): void
     {
-        file_put_contents($this->config_file, json_encode($this->local_env, JSON_FORMAT));
+        file_put_contents($this->config_file, json_encode($this->local_env, JSON_PRETTY));
     }
 }
